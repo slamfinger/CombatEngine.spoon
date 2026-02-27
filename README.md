@@ -1,6 +1,6 @@
 # CombatEngine.spoon
 
-Hammerspoon 战斗引擎插件 (V1.2)。旨在为游戏提供高效、模块化的自动化战斗支持。
+Hammerspoon 战斗引擎插件 (V1.3)。旨在为游戏提供高效、模块化的自动化战斗支持。
 
 ## 功能特性
 

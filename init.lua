@@ -8,7 +8,7 @@ obj.__index = obj
 
 -- Metadata
 obj.name = "CombatEngine"
-obj.version = "1.2"
+obj.version = "1.3"
 obj.author = "Antigravity"
 obj.homepage = "https://github.com/Hammerspoon/Spoons"
 obj.license = "MIT"
