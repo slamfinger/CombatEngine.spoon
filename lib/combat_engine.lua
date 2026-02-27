@@ -1,6 +1,7 @@
---- combat_engine.lua
-local lock = require("synthetic_lock")
-local suppress = require("key_suppress")
+-- Spoons/CombatEngine.spoon/lib/combat_engine.lua
+
+-- 【修改】：引用整合后的 input_io，移除原有的 lock 和 suppress 引用
+local inputIO = require("input_io")
 local config = require("config")
 
 local CombatEngine = {}
@@ -51,7 +52,12 @@ end
 
 function CombatEngine:_postRawKey(key, isDown)
     if not self.state.running then return end
-    hs.eventtap.event.newKeyEvent({}, key, isDown):post()
+    -- 【修改】：使用 inputIO 替代原生的 newKeyEvent:post，自动完成标记、加锁、记录追踪
+    if isDown then
+        inputIO.sendKeyDown(key)
+    else
+        inputIO.sendKeyUp(key)
+    end
 end
 
 function CombatEngine:_physicalPress(key, duration, callback)
@@ -75,7 +81,7 @@ function CombatEngine:_physicalPress(key, duration, callback)
     end)
 end
 
---- 2. 核心战斗逻辑
+--- 2. 核心战斗逻辑 (保持原样)
 
 function CombatEngine:_onTick()
     if not self.state.running then return end
@@ -189,7 +195,9 @@ function CombatEngine:start()
     if self.state.running then self:stop() end
     
     self:_resetInternalState()
-    lock.acquire()
+    -- 【修改】：使用 inputIO 接管加锁
+    inputIO.acquire()
+    
     self.state.running = true
     if not self.state._rngSeeded then
         math.randomseed(os.time())
@@ -252,7 +260,8 @@ function CombatEngine:stop()
     end
     
     if self.state.activeKey then 
-        hs.eventtap.event.newKeyEvent({}, self.state.activeKey, false):post() 
+        -- 【修改】：确保抬起也走 inputIO
+        inputIO.sendKeyUp(self.state.activeKey)
     end
     
     if self.state.pendingTimer then
@@ -260,12 +269,14 @@ function CombatEngine:stop()
         self.state.pendingTimer = nil
     end
     if self.state.pendingKey then
-        hs.eventtap.event.newKeyEvent({}, self.state.pendingKey, false):post()
-        suppress.suppress(self.state.pendingKey, config.syntheticSuppressWindow or 0.05)
+        inputIO.sendKeyUp(self.state.pendingKey)
+        -- 【修改】：使用 inputIO 的抑制功能
+        inputIO.suppress(self.state.pendingKey, config.syntheticSuppressWindow or 0.05)
         self.state.pendingKey = nil
     end
 
-    lock.release()
+    -- 【修改】：使用 inputIO 解锁
+    inputIO.release()
     self:_resetInternalState()
 end
 

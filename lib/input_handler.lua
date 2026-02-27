@@ -1,9 +1,9 @@
---- input_handler.lua
+-- Spoons/CombatEngine.spoon/lib/input_handler.lua
+
 local config = require("config")
-local appUtils = require("app_utils")
 local playerManager = require("player_manager")
-local lock = require("synthetic_lock")
-local suppress = require("key_suppress")
+-- 【修改】：删除了对 synthetic_lock 和 key_suppress 的引用，统一引用 input_io
+local inputIO = require("input_io")
 
 local M = {
     tapState = {},
@@ -33,9 +33,14 @@ function M.start()
         local now = hs.timer.secondsSinceEpoch()
         local tapWindow = config.doubleTapWindow or 0.35
         
-        -- 【过滤层】合成键不拦截、非目标键不拦截、非游戏环境不拦截
-        if lock.isLocked() or not idx or not appUtils.isFrontmostgame() then return false end
-        if suppress.isSuppressed(char, now) then return true end
+        -- 【过滤层】：改用整合后 inputIO 提供的锁状态判定。原逻辑：合成键不拦截（放行）、非目标键不拦截、非游戏不拦截
+        -- 【修改】：lock.isLocked() 替换为 inputIO.isLocked()
+        if inputIO.isLocked() or not idx or not config.isFrontmostGame() then return false end
+        
+        -- 【过滤层】：改用整合后 inputIO 提供的抑制状态判定。原逻辑：抑制期内拦截事件（return true）
+        -- 【修改】：suppress.isSuppressed(char, now) 替换为 inputIO.isSuppressed(char)
+        if inputIO.isSuppressed(char) then return true end
+        
         if etype == hs.eventtap.event.types.keyDown and
            e:getProperty(hs.eventtap.event.properties.keyboardEventAutorepeat) == 1 then
             return true
@@ -93,7 +98,7 @@ function M.start()
     M.escTap = hs.eventtap.new({ hs.eventtap.event.types.keyUp }, function(e)
         if e:getKeyCode() ~= hs.keycodes.map["escape"] then return false end
         
-        if appUtils.isFrontmostgame() and playerManager.isAnyRunning() then
+        if config.isFrontmostGame() and playerManager.isAnyRunning() then
             playerManager.stopAll("Esc手动取消")
             if hs.alert then hs.alert.show("已停止运行") end
             return true
@@ -104,19 +109,19 @@ function M.start()
     -- 3. 应用切换监听 (系统级生命周期管理)
     M.appWatcher = hs.application.watcher.new(function(appName, eventType, app)
         if eventType == hs.application.watcher.activated then
-            if appUtils.isgame(app) then
+            if config.isGame(app) then
                 playerManager.activateSystem()
             else
                 playerManager.deactivateSystem("应用失焦")
             end
         elseif (eventType == hs.application.watcher.deactivated or 
-                eventType == hs.application.watcher.terminated) and appUtils.isgame(app) then
+                eventType == hs.application.watcher.terminated) and config.isGame(app) then
             playerManager.deactivateSystem("游戏关闭/切出")
         end
     end):start()
 
     -- 初始状态同步
-    if appUtils.isFrontmostgame() then
+    if config.isFrontmostGame() then
         playerManager.activateSystem()
     end
 end

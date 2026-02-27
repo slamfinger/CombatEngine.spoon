@@ -1,3 +1,6 @@
+-- lib/joystickTap.lua
+-- 优化版：同步手感参数，保留原始逻辑
+
 local config = require("config")
 
 local M = {}
@@ -10,7 +13,7 @@ function M.new(mouseCenterer)
         bundleID = config.gameBundleID,
         relX = 0.10566, 
         relY = 0.81941, 
-        radius = 105,           
+        radius = 105,           -- 修改：与另一版保持一致，扩大移动范围
         cursorSpeed = 0.6,      
     }
     
@@ -49,7 +52,6 @@ function M.new(mouseCenterer)
         
         if type == hs.eventtap.event.types.rightMouseDown then
             local frontApp = hs.application.frontmostApplication()
-            -- Note: We still use the bundleID from self.config initialized from shared config
             if not frontApp or frontApp:bundleID() ~= self.config.bundleID then return false end
             
             local win = frontApp:mainWindow()
@@ -79,7 +81,7 @@ function M.new(mouseCenterer)
             self.ignoreCount = 3 
             
             if self.mouseCenterer and self.mouseCenterer.suspend then self.mouseCenterer:suspend() end
-            self.vCursor:topLeft({x = self.startPos.x - 1, y = self.startPos.y - 1}):show()
+            self.vCursor:topLeft({x = math.floor(self.startPos.x - 1), y = math.floor(self.startPos.y - 1)}):show()
             
             hs.mouse.absolutePosition(self._cachedJoystickCenter)
             self:_postClick(hs.eventtap.event.types.leftMouseDown, self._cachedJoystickCenter)
@@ -99,17 +101,25 @@ function M.new(mouseCenterer)
             self.virtualOffset.x = self.virtualOffset.x + (dx * self.config.cursorSpeed)
             self.virtualOffset.y = self.virtualOffset.y + (dy * self.config.cursorSpeed)
             
-            local dist = math.sqrt(self.virtualOffset.x^2 + self.virtualOffset.y^2)
-            local rawAngle = math.atan2(self.virtualOffset.y, self.virtualOffset.x)
+            -- 【优化】：增加位移锁定范围，防止虚拟光标越界失控
+            local maxVirtualDist = 500
+            local vDist = math.sqrt(self.virtualOffset.x^2 + self.virtualOffset.y^2)
+            if vDist > maxVirtualDist then
+                local scale = maxVirtualDist / vDist
+                self.virtualOffset.x = self.virtualOffset.x * scale
+                self.virtualOffset.y = self.virtualOffset.y * scale
+                vDist = maxVirtualDist
+            end
             
-            local ratio = dist > 5 and 1.0 or 0.0
+            local rawAngle = math.atan2(self.virtualOffset.y, self.virtualOffset.x)
+            local ratio = vDist > 5 and 1.0 or 0.0
             
             local targetX = math.floor(self._cachedJoystickCenter.x + math.cos(rawAngle) * self.config.radius * ratio)
             local targetY = math.floor(self._cachedJoystickCenter.y + math.sin(rawAngle) * self.config.radius * ratio)
             
             self.vCursor:topLeft({
-                x = self._cachedScreenCenter.x + self.virtualOffset.x - 1,
-                y = self._cachedScreenCenter.y + self.virtualOffset.y - 1
+                x = math.floor(self._cachedScreenCenter.x + self.virtualOffset.x - 1),
+                y = math.floor(self._cachedScreenCenter.y + self.virtualOffset.y - 1)
             })
 
             hs.mouse.absolutePosition({x = targetX, y = targetY})
@@ -141,17 +151,9 @@ function M:_postClick(etype, pos)
     evt:post()
 end
 
-function M:press(pos)
-    self:_postClick(hs.eventtap.event.types.leftMouseDown, pos)
-end
-
-function M:drag(pos)
-    self:_postClick(hs.eventtap.event.types.leftMouseDragged, pos)
-end
-
-function M:release(pos)
-    self:_postClick(hs.eventtap.event.types.leftMouseUp, pos)
-end
+function M:press(pos) self:_postClick(hs.eventtap.event.types.leftMouseDown, pos) end
+function M:drag(pos) self:_postClick(hs.eventtap.event.types.leftMouseDragged, pos) end
+function M:release(pos) self:_postClick(hs.eventtap.event.types.leftMouseUp, pos) end
 
 function M:centerNow()
     if self.active then return end
@@ -160,7 +162,7 @@ function M:centerNow()
         local win = frontApp:mainWindow()
         if win then
             local f = win:frame()
-            hs.mouse.absolutePosition({ x = f.x + f.w/2, y = f.y + f.h/2 })
+            hs.mouse.absolutePosition({ x = math.floor(f.x + f.w/2), y = math.floor(f.y + f.h/2) })
         end
     end
 end
@@ -183,10 +185,7 @@ end
 
 function M:destroy()
     self:stop()
-    if self.vCursor then
-        self.vCursor:delete()
-        self.vCursor = nil
-    end
+    if self.vCursor then self.vCursor:delete(); self.vCursor = nil end
     return self
 end
 

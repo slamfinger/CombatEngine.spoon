@@ -1,6 +1,8 @@
---- player_manager.lua
+-- Spoons/CombatEngine.spoon/lib/player_manager.lua
+
+-- 【修改】：引用新模块，移除旧的 synthetic_lock
 local CombatEngine = require("combat_engine")
-local lock = require("synthetic_lock")
+local inputIO = require("input_io")
 local config = require("config")
 
 local M = {
@@ -9,25 +11,33 @@ local M = {
     _isSwitching = false -- 内部私有锁：防止切换期间的重复触发
 }
 
--- [私有工具] 发送合成按键并管理全局变量锁
+-- [私有工具] 发送合成按键并管理全局变量锁 (逻辑与原 sendSyntheticKey 完全一致)
 local function sendSyntheticKey(char, isDown, resetDelay)
-    lock.acquire()
-    hs.eventtap.event.newKeyEvent({}, char, isDown):post()
+    -- 【修改】：使用 inputIO 接管锁的获取
+    inputIO.acquire()
+    
+    -- 【修改】：通过 inputIO 发送按键，确保带上 999 标签，并记录追踪状态
+    if isDown then
+        inputIO.sendKeyDown(char)
+    else
+        inputIO.sendKeyUp(char)
+    end
     
     if resetDelay then
         hs.timer.doAfter(resetDelay, function()
-            lock.release()
+            -- 【修改】：使用 inputIO 释放锁
+            inputIO.release()
         end)
     else
-        lock.release()
+        inputIO.release()
     end
 end
 
 -- 激活系统 (通常由 AppWatcher 调用)
 function M.activateSystem()
     if M.joystick then M.joystick:start() end
-    -- 确保锁处于干净状态
-    lock.reset()
+    -- 【修改】：确保锁处于干净状态 (清除所有引用计数)
+    while inputIO.isLocked() do inputIO.release() end
 end
 
 -- 停用系统 (应用切换、切屏、游戏关闭时调用)
@@ -43,23 +53,25 @@ function M.stopAll(reason)
             p:stop(reason) 
         end 
     end
-    -- 强制重置全局锁，防止因脚本异常终止导致的键盘死锁
-    lock.reset()
+    -- 【修改】：强制重置全局锁，直到 isLocked 为 false
+    while inputIO.isLocked() do inputIO.release() end
     M._isSwitching = false
 end
 
 -- 处理“手动抢占”逻辑
 function M.interruptAndPassThrough(char, digitKeys)
-    lock.acquire()
+    -- 【修改】：上锁
+    inputIO.acquire()
     
     -- 1. 瞬间释放所有受管辖的按键
     for keyChar, _ in pairs(digitKeys) do
-        hs.eventtap.event.newKeyEvent({}, keyChar, false):post()
+        -- 【修改】：走 inputIO 的发送逻辑，确保不被 input_handler 再次拦截
+        inputIO.sendKeyUp(keyChar)
     end
     
     -- 2. 5ms 极速解锁
     hs.timer.doAfter(0.005, function() 
-        lock.release()
+        inputIO.release()
     end)
 end
 
@@ -117,14 +129,14 @@ end
 -- 强制重置系统
 function M.forceReset()
     M.stopAll("强制重置")
-    lock.reset()
+    -- 【修改】：彻底解锁
+    while inputIO.isLocked() do inputIO.release() end
     M._isSwitching = false
     if hs.alert then hs.alert.show("⚠️ 系统状态已重置") end
 end
 
 -- 模块重载逻辑
 function M.reloadModules()
-    -- Note: In relative path environment, we use short names
     package.loaded["joystickTap"] = nil
     local ok, JoystickClass = pcall(require, "joystickTap")
     if not ok then
